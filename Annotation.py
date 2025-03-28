@@ -1,7 +1,7 @@
 import os
 import re
 import pandas as pd
-import fitz  # PyMuPDF
+import fitz
 import ast
 
 def safe_literal_eval(val):
@@ -28,12 +28,18 @@ df_words = pd.read_excel(word_output_file)
 df_words["Bounding Box"] = df_words["Bounding Box"].apply(safe_literal_eval)
 
 # Config
-BUFFER = 3
+BUFFER = 5
 LINE_TOLERANCE = 2
 
 for filename in df_para["File Name"].unique():
     file_path = os.path.join(folder_path, filename)
-    pdf_document = fitz.open(file_path)
+    
+    try:
+        pdf_document = fitz.open(file_path)
+    except Exception as e:
+        print(f"Error opening file {filename}: {e}")
+        continue
+    
     df_para_file = df_para[df_para["File Name"] == filename]
 
     for _, para_row in df_para_file.iterrows():
@@ -60,6 +66,7 @@ for filename in df_para["File Name"].unique():
             para_bbox[2] + BUFFER,
             para_bbox[3] + BUFFER
         ]
+        
         rect = fitz.Rect(*para_bbox)
         pdf_page = pdf_document[page_index]
 
@@ -69,7 +76,7 @@ for filename in df_para["File Name"].unique():
             try:
                 error_list = ast.literal_eval(error_phrases)
             except:
-                pass
+                error_list = [error_phrases]
         elif isinstance(error_phrases, list):
             error_list = error_phrases
 
@@ -97,7 +104,7 @@ for filename in df_para["File Name"].unique():
         
         # Track used indices to prevent duplicate highlights
         used_indices = set()
-
+        
         for error in error_list:
             if not error:
                 continue
@@ -114,7 +121,12 @@ for filename in df_para["File Name"].unique():
                 
                 for idx, word in enumerate(matching_rows["Content"]):
                     word_len = len(str(word))
+                    # Modified to capture word even if it's partially matching within the exact phrase
                     if current_position >= match_start and current_position < match_start + len(error):
+                        if idx not in used_indices:
+                            match_word_indices.append(idx)
+                    elif (current_position < match_start + len(error)) and (current_position + word_len >= match_start):
+                        # Capture words that overlap with the match
                         if idx not in used_indices:
                             match_word_indices.append(idx)
                     current_position += word_len + 1  # +1 for space
@@ -233,7 +245,11 @@ for filename in df_para["File Name"].unique():
                 # Mark these indices as used
                 used_indices.update(match_to_highlight["sequence"])
 
-    annotated_pdf_path = os.path.join(annotated_pdf_folder, filename)
-    pdf_document.save(annotated_pdf_path)
+    try:
+        annotated_pdf_path = os.path.join(annotated_pdf_folder, filename)
+        pdf_document.save(annotated_pdf_path)
+        print(f"Annotated PDF saved: {annotated_pdf_path}")
+    except Exception as e:
+        print(f"Error saving PDF {filename}: {e}")
+    
     pdf_document.close()
-    print(f"Annotated PDF saved: {annotated_pdf_path}")
